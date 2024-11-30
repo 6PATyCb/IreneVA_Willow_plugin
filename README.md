@@ -1,5 +1,5 @@
 # IreneVA_Willow_plugin
-Плагин для голосового помошника [Ирины](https://github.com/janvarev/Irene-Voice-Assistant) обработки запросов от устройств ESP32-S3 с прошивкой [Willow](https://github.com/toverainc/willow) (имитирует работу Willow Inference Server). Как выглядят устройства вы можете посмотреть [здесь](https://heywillow.io/hardware/).
+Плагин для голосового помошника [Ирины](https://github.com/janvarev/Irene-Voice-Assistant), позволяющий обрабатывать запросы от устройств ESP32-S3 с прошивкой [Willow](https://github.com/toverainc/willow) (имитирует работу Willow Inference Server). Как выглядят устройства вы можете посмотреть [здесь](https://heywillow.io/hardware/).
 
 ## Как использовать плагин
 Плагин использует Webapi. Из-за этого он работает только в режиме, когда Ирина запущена в режиме Webapi (сервер с несколькими клиентами, есть веб-интерфейс).
