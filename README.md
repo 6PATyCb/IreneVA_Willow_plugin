@@ -11,7 +11,7 @@
 
 Также для работы нужно выполнить переконфигурацию Willow устройства через [WAS](https://github.com/toverainc/willow-application-server).
 
-Далее 127.0.0.1 - должен быть заменен на IP вашего ПК, к которому будет подключаться устройство Willow. [Пример](https://github.com/6PATyCb/IreneVA_Willow_plugin/blob/main/was.jpg)
+Далее 127.0.0.1 - должен быть заменен на IP вашего ПК, к которому будет подключаться устройство Willow. В моем [примере](https://github.com/6PATyCb/IreneVA_Willow_plugin/blob/main/was.jpg) это IP `192.168.133.252`
 
 На странице настроек `WAS` указать:
 
