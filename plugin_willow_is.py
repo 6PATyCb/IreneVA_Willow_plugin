@@ -5,7 +5,6 @@ import uvicorn
 import wave
 import base64
 from multiprocessing import Process
-from transliterate import translit
 
 from starlette.responses import HTMLResponse
 from termcolor import cprint
@@ -20,6 +19,9 @@ modname = os.path.basename(__file__)[:-3] # calculating modname
 core = None
 model = None
 
+INPUT_PREFIX = "input_prefix"
+POSTFIX_BY_IP = "postfix_by_ip"
+
 API_WILLOW = "/api/willow"
 API_WILLOW_REST = "/api/willow_rest"
 API_WILLOW_TTS = "/api/tts"
@@ -28,11 +30,13 @@ API_WILLOW_TTS = "/api/tts"
 def start(core:VACore):
     manifest = { # возвращаем настройки плагина - словарь
         "name": "Willow_is", # имя
-        "version": "1.0", # версия
+        "version": "2.0", # версия
         "require_online": False, # требует ли онлайн?
 
         "description": "Плагин обработки запросов от Willow (имитирует работу Willow Inference Server)\n"
-                       "Если указан input_prefix, то он будет подставляться перед фразой, передаваемой Ирине. Это полезно, если хотите из Willow сразу обращаться к конкретному плагину",
+                       "Если указан input_prefix, то он будет подставляться перед фразой, передаваемой Ирине.\n"
+                       "Если translit = true, то происходит транслитизация текста при обмене с Willow устройством. Это сделано по причине поддержки только латинских букв при отображении на его экране.\n"
+                       "Не забудьте поправить \"host\" на \"0.0.0.0\" в runva_webapi.json, чтобы ESP32 с Willow мог обращаться с запросами к вашему компьютеру",
         "default_options": {
             "input_prefix": "ирина",
             "translit": True
@@ -46,16 +50,16 @@ def start_with_options(core_local:VACore, manifest:dict):
     core = core_local
     options = manifest["options"]
     print("options:" + str(options))
-    if hasattr(core, 'fastapi'):
+    if hasattr(core, 'fastApiApp'):
         print("Запускаем Willow inference server")
         print("Создаем POST endpoint "+ API_WILLOW)
-        core.fastapi.include_router(subapi_post, prefix=f'{API_WILLOW}')
+        core.fastApiApp.include_router(subapi_post, prefix=f'{API_WILLOW}')
 
         print("Создаем POST endpoint "+ API_WILLOW_REST)
-        core.fastapi.include_router(subapi_post, prefix=f'{API_WILLOW_REST}')
+        core.fastApiApp.include_router(subapi_post, prefix=f'{API_WILLOW_REST}')
 
         print("Создаем GET endpoint "+ API_WILLOW_TTS)
-        core.fastapi.include_router(subapi_get, prefix=f'{API_WILLOW_TTS}')
+        core.fastApiApp.include_router(subapi_get, prefix=f'{API_WILLOW_TTS}')
     else:
         print("Willow inference server не будет запущен, т.к. не удалось определить режим webapi")
     try:
@@ -170,9 +174,9 @@ async def willow(request: Request):
             return toTranslit("не распозналось")
         # print(recognized_data)
         voice_input_str = recognized_data["partial"]
-        print(voice_input_str)
+        print("willow: " + voice_input_str)
         voice_input_str = toTranslit(voice_input_str)
-        print(voice_input_str)
+        #print(voice_input_str)
         return voice_input_str
     return ""
 
@@ -182,21 +186,30 @@ async def willow_rest(request: Request):
     body_str_translit = body_str_translit.replace("\"","")
     body_str = fromTranslit(body_str_translit)
     options = core.plugin_options(modname)
-
-    if options["input_prefix"] != "":
-       body_str = options["input_prefix"]+ " " + body_str
+    ip = ipFromRequest(request)
+    if body_str == "":
+        return toTranslit("ничего не слышно")
+    if INPUT_PREFIX in options:
+       if options[INPUT_PREFIX] != "":
+            body_str = options[INPUT_PREFIX]+ " " + body_str
+    if POSTFIX_BY_IP in options: 
+        #print("!!postfix_by_ip!"+str(options["postfix_by_ip"]))
+        if ip in options[POSTFIX_BY_IP]:
+            #print("!!postfix_by_ip+ip!"+str(options[POSTFIX_BY_IP][ip]))
+            if options[POSTFIX_BY_IP][ip] != "" :
+                body_str = body_str + " " + options[POSTFIX_BY_IP][ip]
     #body_str = "домовой " + body_str
-    print("willow_rest: " + body_str)
+   
+    print("willow_rest(" + ip + "): " + body_str)
     tmpformat = core.remoteTTS
     core.remoteTTS = "saytxt"
     core.remoteTTSResult = ""
     core.lastSay = ""
     run_res = core.run_input_str(body_str)
-    print("run_res:" + str(run_res))
-    #core.execute_next(body_str,core.context)
+    #print("run_res:" + str(run_res))
     core.remoteTTS = tmpformat
     res =  core.remoteTTSResult
-    print("res:'"+str(res)+"'")
+    #print("res:'"+str(res)+"'")
     answer_text = ""
     if res != "":
         answer_text = res["restxt"]
@@ -207,29 +220,64 @@ async def willow_rest(request: Request):
 
 async def willow_tts(request: Request):
     text_translit = request.query_params.get("text")
-    text = fromTranslit(text_translit)
-    #print("text: " + text)
+    text_translit = text_translit.replace("\"","")
+    text = fromTranslit(text_translit)   
+    print("willow_tts: " + text)
     tmpformat = core.remoteTTS
     core.remoteTTS = "saywav"
     core.play_voice_assistant_speech(text)
     core.remoteTTS = tmpformat
     res =  core.remoteTTSResult
-    #recognized_data = json.loads(r)
     base64_encoded = res["wav_base64"]
     bytes = base64.b64decode(base64_encoded)
-    #r = await ttsWav(text)
-    #print("r: " + str(base64_encoded))
     return Response(content=bytes, media_type="audio/x-wav")
-    #return "xz.wav"
+
+def ipFromRequest(request: Request):
+    h1 = request.headers.get("X-Forwarded-For")
+    if h1 != None:
+        return h1
+    h2 = request.headers.get("Proxy-Client-IP")
+    if h2 != None:
+        return h2
+    h3 = request.headers.get("WL-Proxy-Client-IP")
+    if h3 != None:
+        return h3
+    h4 = request.headers.get("HTTP_CLIENT_IP")
+    if h4 != None:
+        return h4
+    h5 = request.headers.get("HTTP_X_FORWARDED_FOR")
+    if h5 != None:
+        return h5
+    return request.client.host
 
 def toTranslit(str):
     options = core.plugin_options(modname)
     if options["translit"] == False:
         return str
-    return translit(str, "ru", reversed=True,strict=True)
+    try:
+        from transliterate import translit
+        return translit(str, "ru", reversed=True)
+    except Exception as e:
+        print("Нужна установка python модуля transliterate (pip install transliterate), чтобы ESP32 с Willow мог на транслите отображать текст на своем экране")
+        import traceback
+        traceback.print_exc()
+        return str
+    
 
 def fromTranslit(str):
     options = core.plugin_options(modname)
     if options["translit"] == False:
         return str
-    return translit(str, "ru", reversed=False,strict=True)
+    try:
+        from transliterate import translit
+        text = translit(str, "ru", reversed=False)
+        text = text.replace("Ь","ь")#костыль видимо бага в транслитизаторе
+        if text == "Не могу помочь с етим":#костыль из-за проблемы транслита когда 'э' превращается в 'e'. Фраза из плагина plugin_hassio_script_trigger
+            text = "Не могу помочь с этим"
+        return text
+    except Exception as e:
+        print("Нужна установка python модуля transliterate (pip install transliterate), чтобы ESP32 с Willow мог на транслите отображать текст на своем экране")
+        import traceback
+        traceback.print_exc()
+        return str
+    
