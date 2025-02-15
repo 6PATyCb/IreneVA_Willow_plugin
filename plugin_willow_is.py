@@ -30,7 +30,7 @@ API_WILLOW_TTS = "/api/tts"
 def start(core:VACore):
     manifest = { # возвращаем настройки плагина - словарь
         "name": "Willow_is", # имя
-        "version": "2.0", # версия
+        "version": "2.1", # версия
         "require_online": False, # требует ли онлайн?
 
         "description": "Плагин обработки запросов от Willow (имитирует работу Willow Inference Server)\n"
@@ -98,26 +98,7 @@ def process_chunk(rec,message,returnFormat):
         #print("Result:",res)
         resj = json.loads(res)
         if "text" in resj:
-            voice_input_str = resj["text"]
-            #print(restext)
-            import requests
-
-            if voice_input_str != "" and voice_input_str != None:
-                print(voice_input_str)
-                #ttsFormatList = ["saytxt"]
-                #res2 = sendRawTxtOrig(voice_input_str,"none,saytxt")
-                res2 = sendRawTxtOrig(voice_input_str, returnFormat)
-                # saywav not supported due to bytes serialization???
-
-
-                if res2 != "NO_VA_NAME":
-                    res3:dict = res2
-                    if res3.get("wav_base64") is not None: # converting bytes to str
-                        res3["wav_base64"] = res2["wav_base64"].decode("utf-8")
-                    res2 = json.dumps(res3)
-                else:
-                    res2 = "{}"
-
+            return res
         else:
             #print("2",rec.PartialResult())
             pass
@@ -163,17 +144,26 @@ async def willow(request: Request):
     if os.path.exists(tmp_wav_name):
         os.unlink(tmp_wav_name)
     global model
+    #print("beg model")
     if model != None:
         from vosk import KaldiRecognizer
         rec = KaldiRecognizer(model, int(sample_rate))
-        #print("microphone recognition")
+        #print("before process_chunk")
         r = process_chunk(rec,wav,"saytxt,saywav")
-        #print(r)
+        #print("process_chunk result: "+ r)
         recognized_data = json.loads(r)
-        if 'partial' not in recognized_data:
+        flg_data_recognized = False
+        voice_input_str = ""
+        if 'partial' in recognized_data:
+            flg_data_recognized = True
+            voice_input_str = recognized_data["partial"]
+        elif 'text' in recognized_data:
+            flg_data_recognized = True
+            voice_input_str = recognized_data["text"]
+        else:
+            print("willow: не распозналось")
             return toTranslit("не распозналось")
         # print(recognized_data)
-        voice_input_str = recognized_data["partial"]
         print("willow: " + voice_input_str)
         voice_input_str = toTranslit(voice_input_str)
         #print(voice_input_str)
